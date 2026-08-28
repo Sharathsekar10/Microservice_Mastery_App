@@ -1,0 +1,14 @@
+services:
+  inventoryservice:
+    build:
+      context: ./InventoryService   # folder containing InventoryService's Dockerfile
+    ports:
+      - "8080:8080"                 # host:container - same as your manual -p flag
+
+  orderservice:
+    build:
+      context: ./OrderService       # folder containing OrderService's Dockerfile
+    ports:
+      - "8081:8080"
+    depends_on:
+      - inventoryservice            # start-order only, not a readiness guarantee
