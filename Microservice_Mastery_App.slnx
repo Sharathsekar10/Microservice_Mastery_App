@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="../InventoryService/InventoryService.csproj" Id="b1f6a851-0e9d-4e1b-bfb5-756d5074e958" />
+  <Project Path="../NotificationService/NotificationService.csproj" Id="07dee8cc-e4fd-4316-933e-cbb9b687180a" />
+  <Project Path="../OrderService/OrderService.csproj" Id="e87b3fa2-10d8-4b09-9db6-f8313b2a9417" />
+  <Project Path="Microservice_Mastery_App.csproj" />
+</Solution>
