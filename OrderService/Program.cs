@@ -7,7 +7,7 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddHttpClient("InventoryService", client =>
 {
-    client.BaseAddress = new Uri("https://localhost:7003/api/Inventory/");
+    client.BaseAddress = new Uri("http://inventoryservice:8080/api/Inventory/");
     client.DefaultRequestHeaders.Add("Accept", "application/json");
     client.Timeout = TimeSpan.FromSeconds(5);
 });
