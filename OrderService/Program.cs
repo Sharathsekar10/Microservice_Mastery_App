@@ -1,3 +1,5 @@
+using OrderService.Messaging;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -11,6 +13,10 @@ builder.Services.AddHttpClient("InventoryService", client =>
     client.DefaultRequestHeaders.Add("Accept", "application/json");
     client.Timeout = TimeSpan.FromSeconds(5);
 });
+
+// Publishes OrderConfirmed events. Singleton because ServiceBusClient/Sender are meant to be
+// long-lived and reused across requests, not created per-request.
+builder.Services.AddSingleton<IOrderEventPublisher, OrderEventPublisher>();
 
 var app = builder.Build();
 
