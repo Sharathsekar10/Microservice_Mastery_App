@@ -1,3 +1,5 @@
+using NotificationService.Messaging;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -5,6 +7,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+// Consumes OrderConfirmed events in the background - this is what makes NotificationService
+// an event-driven consumer instead of something OrderService has to call directly.
+builder.Services.AddHostedService<OrderEventConsumer>();
 
 var app = builder.Build();
 

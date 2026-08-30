@@ -12,3 +12,13 @@ services:
       - "8081:8080"
     depends_on:
       - inventoryservice            # start-order only, not a readiness guarantee
+    env_file:
+      - .env                       # supplies ServiceBus__ConnectionString - never committed
+
+  notificationservice:
+    build:
+      context: ./NotificationService
+    ports:
+      - "8082:8080"
+    env_file:
+      - .env                       # same Service Bus connection string, different subscription
