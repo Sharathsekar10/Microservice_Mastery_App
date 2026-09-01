@@ -2,8 +2,6 @@ namespace OrderService.Messaging
 {
     public interface IOrderEventPublisher
     {
-        Task PublishOrderConfirmedAsync(int productId, int quantity, CancellationToken cancellationToken = default);
-
         // Day 9 (Outbox): publishes an already-built payload under an already-fixed
         // eventId, supplied by the caller rather than generated here. This is what lets
         // the OutboxDispatcher redeliver the SAME logical event on retry - same eventId
