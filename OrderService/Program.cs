@@ -1,4 +1,6 @@
+using OrderService.Data;
 using OrderService.Messaging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
 using Polly.Retry;
@@ -74,6 +76,13 @@ builder.Services.AddHttpClient("InventoryService", client =>
     // gets set from actual measured p99, then revisited with real data.
     pipelineBuilder.AddTimeout(TimeSpan.FromSeconds(2));
 });
+
+// Day 9: the Order + Outbox durable store. SQLite for now - deliberately thin,
+// zero external infra for a learning project (see Day 9 theory: production would
+// target Azure SQL Database instead, via a provider swap only - the DbContext,
+// entities, and every LINQ query here stay identical either way).
+builder.Services.AddDbContext<OrderDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("OrderDb")));
 
 // Publishes OrderConfirmed events. Singleton because ServiceBusClient/Sender are meant to be
 // long-lived and reused across requests, not created per-request.
