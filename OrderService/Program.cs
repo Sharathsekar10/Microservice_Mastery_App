@@ -88,6 +88,11 @@ builder.Services.AddDbContext<OrderDbContext>(options =>
 // long-lived and reused across requests, not created per-request.
 builder.Services.AddSingleton<IOrderEventPublisher, OrderEventPublisher>();
 
+// Day 9: the Outbox Dispatcher. Runs for the lifetime of the app, on its own timer,
+// completely independent of any HTTP request - this is what catches "Service Bus had
+// a transient blip while OrderService stayed healthy" (Gap 2), not just crash recovery.
+builder.Services.AddHostedService<OutboxDispatcher>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
