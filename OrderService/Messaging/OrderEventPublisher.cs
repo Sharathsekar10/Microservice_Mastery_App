@@ -46,6 +46,21 @@ namespace OrderService.Messaging
             _logger.LogInformation("Published OrderConfirmed event {EventId} for product {ProductId}, quantity {Quantity}", eventId, productId, quantity);
         }
 
+        public async Task PublishRawAsync(string eventId, string eventType, string payloadJson, CancellationToken cancellationToken = default)
+        {
+            var message = new ServiceBusMessage(payloadJson)
+            {
+                MessageId = eventId, // fixed by the caller (the OutboxMessage row's own Id) -
+                                      // identical across every redelivery attempt, which is
+                                      // the whole point (see Day 9 outbox discussion).
+                Subject = eventType,
+                ContentType = "application/json"
+            };
+
+            await _sender.SendMessageAsync(message, cancellationToken);
+            _logger.LogInformation("Published {EventType} event {EventId} from outbox", eventType, eventId);
+        }
+
         public async ValueTask DisposeAsync()
         {
             await _sender.DisposeAsync();
