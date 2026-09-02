@@ -95,6 +95,19 @@ builder.Services.AddHostedService<OutboxDispatcher>();
 
 var app = builder.Build();
 
+// Day 9: apply pending EF Core migrations on startup. Deliberate, narrow trade-off -
+// this is safe ONLY because exactly one OrderService instance ever runs in this
+// docker-compose setup. It is NOT what we'll do once OrderService scales to multiple
+// replicas in Kubernetes (Block G) - several pods all racing to migrate the same
+// schema simultaneously on startup is a real hazard. At that point this becomes a
+// separate, one-time migration step (a Job or init container), not something every
+// replica does on boot. Flagging that now so it doesn't get carried forward silently.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+    db.Database.Migrate();
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
