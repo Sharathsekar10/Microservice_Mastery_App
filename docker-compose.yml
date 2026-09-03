@@ -4,6 +4,8 @@ services:
       context: ./InventoryService   # folder containing InventoryService's Dockerfile
     ports:
       - "8080:8080"                 # host:container - same as your manual -p flag
+    env_file:
+      - .env                       # Day 10: InventoryEventConsumer needs ServiceBus__ConnectionString too now
 
   orderservice:
     build:
