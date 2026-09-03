@@ -13,6 +13,14 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+// Day 10 NOTE: as of the Saga rewrite, OrderController.CreateOrder no longer calls
+// InventoryService synchronously at all - that call, and everything below (retry +
+// circuit breaker + timeout), is currently UNUSED by any endpoint. Left in place
+// deliberately rather than deleted: it's real, correct Day 8 resilience config, and
+// exactly the kind of thing a future synchronous read (e.g. a live "check current
+// stock" UI call, which is NOT part of the saga) would reuse as-is. Flagging this
+// explicitly so it doesn't look like an oversight - dead code that isn't explained
+// is indistinguishable from a bug.
 builder.Services.AddHttpClient("InventoryService", client =>
 {
     client.BaseAddress = new Uri("http://inventoryservice:8080/api/Inventory/");
@@ -78,6 +86,15 @@ builder.Services.AddHttpClient("InventoryService", client =>
 // Publishes OrderConfirmed events. Singleton because ServiceBusClient/Sender are meant to be
 // long-lived and reused across requests, not created per-request.
 builder.Services.AddSingleton<IOrderEventPublisher, OrderEventPublisher>();
+
+// Day 9: the Outbox Dispatcher. Runs for the lifetime of the app, on its own timer,
+// completely independent of any HTTP request - this is what catches "Service Bus had
+// a transient blip while OrderService stayed healthy" (Gap 2), not just crash recovery.
+builder.Services.AddHostedService<OutboxDispatcher>();
+
+// Day 10 (Saga): consumes StockReserved/ReservationFailed and drives the Order's
+// state machine forward - Pending -> Completed or Pending -> Failed.
+builder.Services.AddHostedService<InventoryResultConsumer>();
 
 var app = builder.Build();
 
