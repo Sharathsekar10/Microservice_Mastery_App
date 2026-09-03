@@ -18,15 +18,23 @@ namespace NotificationService.Messaging
         public DateTime UpdatedAtUtc { get; set; }
     }
 
-    // Consumes OrderConfirmed events from the order-events topic / notification-sub subscription.
-    // The in-memory dictionary below is a simplification for this learning exercise - in production
-    // this idempotency store needs to survive a restart, so it belongs in a real datastore (exactly
-    // what you designed in Segment 5). Kept in-memory here so today's hands-on stays fast to run.
+    // Day 10 (Saga): consumes OrderResult events from the order-events topic /
+    // notification-sub subscription - the saga's FINAL step. OrderResult is published
+    // by OrderService only after it already knows the real outcome (StockReserved or
+    // ReservationFailed from InventoryService), so this is genuinely the first moment
+    // anyone tells the customer anything definitive - the original CreateOrder request
+    // only ever got a 202.
     //
-    // NOTE (Day 7, Segment 6): the staleness-timeout reclaim below is a DELIBERATE simplification.
-    // It does not fully close the race you found - a worker that is merely slow (not dead) can still
-    // finish and double-complete after being "reclaimed". We'll trigger that exact race on purpose
-    // in the next hands-on step.
+    // The in-memory dictionary below is a simplification for this learning exercise - in
+    // production this idempotency store needs to survive a restart, so it belongs in a
+    // real datastore (exactly what you designed in Segment 5, and exactly what Day 10
+    // built as a real EF-backed Inbox table on OrderService's side). Kept in-memory here
+    // so today's hands-on stays fast to run.
+    //
+    // NOTE (Day 7, Segment 6): the staleness-timeout reclaim below is a DELIBERATE
+    // simplification. It does not fully close the race you found - a worker that is
+    // merely slow (not dead) can still finish and double-complete after being
+    // "reclaimed". That was triggered on purpose back on Day 7; still true today.
     public class OrderEventConsumer : BackgroundService
     {
         private static readonly ConcurrentDictionary<string, EventRecord> ProcessedEvents = new();
@@ -66,7 +74,7 @@ namespace NotificationService.Messaging
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             await _processor.StartProcessingAsync(stoppingToken);
-            _logger.LogInformation("NotificationService is now listening for OrderConfirmed events.");
+            _logger.LogInformation("NotificationService is now listening for OrderResult events.");
 
             try
             {
@@ -80,6 +88,13 @@ namespace NotificationService.Messaging
 
         private async Task HandleMessageAsync(ProcessMessageEventArgs args)
         {
+            if (args.Message.Subject != "OrderResult")
+            {
+                _logger.LogWarning("Ignoring unexpected event type {Subject} on notification-sub", args.Message.Subject);
+                await args.CompleteMessageAsync(args.Message);
+                return;
+            }
+
             var eventId = args.Message.MessageId;
             var now = DateTime.UtcNow;
 
@@ -118,16 +133,27 @@ namespace NotificationService.Messaging
             try
             {
                 var body = JsonSerializer.Deserialize<JsonElement>(args.Message.Body.ToString());
-                var productId = body.GetProperty("ProductId").GetInt32();
-                var quantity = body.GetProperty("Quantity").GetInt32();
+                var orderId = body.GetProperty("OrderId").GetGuid();
+                var status = body.GetProperty("Status").GetString();
+                var reason = body.TryGetProperty("Reason", out var reasonProp) && reasonProp.ValueKind != JsonValueKind.Null
+                    ? reasonProp.GetString()
+                    : null;
 
                 // Simulate doing the actual notification work (e.g. sending an email/SMS).
                 _logger.LogInformation("Started processing event {EventId} - simulating {DelaySeconds}s of work...", eventId, _simulatedWorkDelay.TotalSeconds);
                 await Task.Delay(_simulatedWorkDelay, args.CancellationToken);
 
-                _logger.LogInformation(
-                    "Notification sent: order confirmed for product {ProductId}, quantity {Quantity} (event {EventId})",
-                    productId, quantity, eventId);
+                if (status == "Completed")
+                {
+                    _logger.LogInformation(
+                        "Notification sent: order {OrderId} confirmed (event {EventId})", orderId, eventId);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Notification sent: order {OrderId} could not be fulfilled - {Reason} (event {EventId})",
+                        orderId, reason ?? "unknown reason", eventId);
+                }
 
                 record.State = EventProcessingState.Completed;
                 record.UpdatedAtUtc = DateTime.UtcNow;
@@ -136,7 +162,7 @@ namespace NotificationService.Messaging
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process OrderConfirmed event {EventId}. Abandoning so the broker can redeliver.", eventId);
+                _logger.LogError(ex, "Failed to process OrderResult event {EventId}. Abandoning so the broker can redeliver.", eventId);
                 await args.AbandonMessageAsync(args.Message);
             }
         }
