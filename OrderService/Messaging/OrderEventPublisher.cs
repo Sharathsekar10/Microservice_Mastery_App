@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Azure.Messaging.ServiceBus;
 
 namespace OrderService.Messaging
@@ -22,28 +21,19 @@ namespace OrderService.Messaging
             _sender = _client.CreateSender(topicName);
         }
 
-        public async Task PublishOrderConfirmedAsync(int productId, int quantity, CancellationToken cancellationToken = default)
+        public async Task PublishRawAsync(string eventId, string eventType, string payloadJson, CancellationToken cancellationToken = default)
         {
-            var eventId = Guid.NewGuid().ToString();
-            var orderEvent = new
+            var message = new ServiceBusMessage(payloadJson)
             {
-                EventId = eventId,
-                EventName = "OrderConfirmed",
-                ProductId = productId,
-                Quantity = quantity,
-                ConfirmedAtUtc = DateTime.UtcNow
-            };
-
-            var body = JsonSerializer.Serialize(orderEvent);
-            var message = new ServiceBusMessage(body)
-            {
-                MessageId = eventId, // the identity key NotificationService's idempotency store keys off of
-                Subject = "OrderConfirmed",
+                MessageId = eventId, // fixed by the caller (the OutboxMessage row's own Id) -
+                                      // identical across every redelivery attempt, which is
+                                      // the whole point (see Day 9 outbox discussion).
+                Subject = eventType,
                 ContentType = "application/json"
             };
 
             await _sender.SendMessageAsync(message, cancellationToken);
-            _logger.LogInformation("Published OrderConfirmed event {EventId} for product {ProductId}, quantity {Quantity}", eventId, productId, quantity);
+            _logger.LogInformation("Published {EventType} event {EventId} from outbox", eventType, eventId);
         }
 
         public async ValueTask DisposeAsync()
