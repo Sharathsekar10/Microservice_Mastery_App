@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Net;
 using System.Text.Json;
-using OrderService.Messaging;
+using OrderService.Data;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
 
@@ -13,13 +13,13 @@ namespace OrderService.Controllers
     public class OrderController : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IOrderEventPublisher _orderEventPublisher;
+        private readonly OrderDbContext _dbContext;
         private readonly ILogger<OrderController> _logger;
 
-        public OrderController(IHttpClientFactory httpClientFactory, IOrderEventPublisher orderEventPublisher, ILogger<OrderController> logger)
+        public OrderController(IHttpClientFactory httpClientFactory, OrderDbContext dbContext, ILogger<OrderController> logger)
         {
             _httpClientFactory = httpClientFactory;
-            _orderEventPublisher = orderEventPublisher;
+            _dbContext = dbContext;
             _logger = logger;
         }
 
@@ -43,17 +43,45 @@ namespace OrderService.Controllers
 
                     if (product.TryGetProperty("stock", out JsonElement stockProp) && stockProp.GetInt32() >= quantity)
                     {
-                        // The order is confirmed regardless of what happens next with the event.
-                        // NotificationService's fate must NOT determine whether the customer's
-                        // order succeeded - that's the whole point of Day 7, Segment 1.
-                        try
+                        // Day 9 (Outbox pattern): no direct call to Service Bus here at all
+                        // anymore. The order and the "intent to publish" are written together,
+                        // in ONE SaveChangesAsync() - one transaction, both rows land or neither
+                        // does. The OutboxDispatcher (running independently, on its own timer)
+                        // is responsible for actually getting the event to Service Bus - whether
+                        // that happens in the next 3 seconds or after this process crashes and
+                        // restarts makes no difference to correctness. This IS the fix for the
+                        // dual-write problem this whole session has been about.
+                        var eventId = Guid.NewGuid();
+                        var orderConfirmedEvent = new
                         {
-                            await _orderEventPublisher.PublishOrderConfirmedAsync(productId, quantity);
-                        }
-                        catch (Exception publishEx)
+                            EventId = eventId.ToString(),
+                            EventName = "OrderConfirmed",
+                            ProductId = productId,
+                            Quantity = quantity,
+                            ConfirmedAtUtc = DateTime.UtcNow
+                        };
+
+                        var order = new Order
                         {
-                            _logger.LogError(publishEx, "Failed to publish OrderConfirmed event for product {ProductId}. Order is still confirmed.", productId);
-                        }
+                            ProductId = productId,
+                            Quantity = quantity
+                        };
+
+                        var outboxMessage = new OutboxMessage
+                        {
+                            // SAME id used as the payload's EventId, and later as the Service
+                            // Bus MessageId when the dispatcher sends it - one fixed identity,
+                            // unchanged across every redelivery attempt, which is what lets
+                            // NotificationService's idempotency store recognize a retry as a
+                            // retry instead of a new event.
+                            Id = eventId,
+                            EventType = "OrderConfirmed",
+                            Payload = JsonSerializer.Serialize(orderConfirmedEvent)
+                        };
+
+                        _dbContext.Orders.Add(order);
+                        _dbContext.OutboxMessages.Add(outboxMessage);
+                        await _dbContext.SaveChangesAsync();
 
                         return Ok(new { StatusCode = 200, Message = "Order Confirmed" });
                     }

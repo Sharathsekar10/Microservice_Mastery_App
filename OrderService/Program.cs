@@ -1,4 +1,6 @@
+using OrderService.Data;
 using OrderService.Messaging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
 using Polly.Retry;
@@ -75,11 +77,36 @@ builder.Services.AddHttpClient("InventoryService", client =>
     pipelineBuilder.AddTimeout(TimeSpan.FromSeconds(2));
 });
 
+// Day 9: the Order + Outbox durable store. SQLite for now - deliberately thin,
+// zero external infra for a learning project (see Day 9 theory: production would
+// target Azure SQL Database instead, via a provider swap only - the DbContext,
+// entities, and every LINQ query here stay identical either way).
+builder.Services.AddDbContext<OrderDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("OrderDb")));
+
 // Publishes OrderConfirmed events. Singleton because ServiceBusClient/Sender are meant to be
 // long-lived and reused across requests, not created per-request.
 builder.Services.AddSingleton<IOrderEventPublisher, OrderEventPublisher>();
 
+// Day 9: the Outbox Dispatcher. Runs for the lifetime of the app, on its own timer,
+// completely independent of any HTTP request - this is what catches "Service Bus had
+// a transient blip while OrderService stayed healthy" (Gap 2), not just crash recovery.
+builder.Services.AddHostedService<OutboxDispatcher>();
+
 var app = builder.Build();
+
+// Day 9: apply pending EF Core migrations on startup. Deliberate, narrow trade-off -
+// this is safe ONLY because exactly one OrderService instance ever runs in this
+// docker-compose setup. It is NOT what we'll do once OrderService scales to multiple
+// replicas in Kubernetes (Block G) - several pods all racing to migrate the same
+// schema simultaneously on startup is a real hazard. At that point this becomes a
+// separate, one-time migration step (a Job or init container), not something every
+// replica does on boot. Flagging that now so it doesn't get carried forward silently.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+    db.Database.Migrate();
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

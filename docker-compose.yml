@@ -14,6 +14,17 @@ services:
       - inventoryservice            # start-order only, not a readiness guarantee
     env_file:
       - .env                       # supplies ServiceBus__ConnectionString - never committed
+    environment:
+      # Overrides appsettings.json's local-friendly relative path with the container's
+      # real absolute one - same override mechanism as ServiceBus__ConnectionString above,
+      # just inline here since it's not a secret. appsettings.json stays safe for
+      # design-time tooling (dotnet ef) run directly on the host, which never sees this.
+      - ConnectionStrings__OrderDb=Data Source=/app/data/orderflow.db
+    volumes:
+      - orderflow-order-db:/app/data   # Day 9: named volume, NOT mounted at /app itself -
+                                         # that would hide the published app binaries under
+                                         # an empty volume. Only this data subfolder persists
+                                         # independently of the container's own lifecycle.
 
   notificationservice:
     build:
@@ -22,3 +33,6 @@ services:
       - "8082:8080"
     env_file:
       - .env                       # same Service Bus connection string, different subscription
+
+volumes:
+  orderflow-order-db:   # holds orderflow.db - survives 'down', rebuilds, and recreated containers
