@@ -1,5 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using InventoryService.Services;
 
 namespace InventoryService.Controllers
 {
@@ -7,12 +7,12 @@ namespace InventoryService.Controllers
     [ApiController]
     public class InventoryController : ControllerBase
     {
-        private readonly Dictionary<int, int> productQuantity = new Dictionary<int, int>()
-        {
-            {1,5},
-            { 2,10 }
-        };
+        private readonly InventoryStore _store;
 
+        public InventoryController(InventoryStore store)
+        {
+            _store = store;
+        }
 
         [HttpGet("health")]
         public async Task<IActionResult> GetHealth()
@@ -25,16 +25,9 @@ namespace InventoryService.Controllers
         {
             try
             {
-                
-                IActionResult result;
-                if(productQuantity.TryGetValue(productId,out var quantites))
-                {
-                    result = Ok(new { ProductId = productId, Stock = quantites, StatusCode = 200 });
-                }
-                else
-                {
-                    result = NotFound(new { StatusCode = 404, Message = "Product not found" });
-                }
+                IActionResult result = _store.TryGetStock(productId, out var quantity)
+                    ? Ok(new { ProductId = productId, Stock = quantity, StatusCode = 200 })
+                    : NotFound(new { StatusCode = 404, Message = "Product not found" });
 
                 return Task.FromResult(result);
             }

@@ -4,8 +4,8 @@ namespace OrderService.Data
 {
     // Deliberately thin. OrderFlow's domain stays minimal by design - this entity's only
     // job is to give us something durable to write in the SAME transaction as the outbox
-    // event, so we can demonstrate the pattern. It is NOT a real order model (no status,
-    // no line items, no pricing) - that would be scope creep this project explicitly avoids.
+    // event, so we can demonstrate the pattern. It is NOT a real order model (no line
+    // items, no pricing) - that would be scope creep this project explicitly avoids.
     public class Order
     {
         // Guid, not an int identity column. Deliberate: identity/auto-increment behavior
@@ -18,6 +18,17 @@ namespace OrderService.Data
         public int ProductId { get; set; }
 
         public int Quantity { get; set; }
+
+        // Day 10 (Saga): the state machine for this order's saga.
+        //   Pending    -> written the moment CreateOrder returns 202; nothing about
+        //                 Inventory is known yet.
+        //   Completed  -> InventoryService's StockReserved event was consumed.
+        //   Failed     -> InventoryService's ReservationFailed event was consumed
+        //                 (this is the compensating transaction - a NEW forward
+        //                 local transaction, not a rollback of the Pending row).
+        // Kept as a string, same convention as OutboxMessage.EventType, so new states
+        // don't force a schema change.
+        public string Status { get; set; } = "Pending";
 
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     }

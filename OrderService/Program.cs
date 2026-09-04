@@ -15,6 +15,14 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+// Day 10 NOTE: as of the Saga rewrite, OrderController.CreateOrder no longer calls
+// InventoryService synchronously at all - that call, and everything below (retry +
+// circuit breaker + timeout), is currently UNUSED by any endpoint. Left in place
+// deliberately rather than deleted: it's real, correct Day 8 resilience config, and
+// exactly the kind of thing a future synchronous read (e.g. a live "check current
+// stock" UI call, which is NOT part of the saga) would reuse as-is. Flagging this
+// explicitly so it doesn't look like an oversight - dead code that isn't explained
+// is indistinguishable from a bug.
 builder.Services.AddHttpClient("InventoryService", client =>
 {
     client.BaseAddress = new Uri("http://inventoryservice:8080/api/Inventory/");
@@ -33,11 +41,6 @@ builder.Services.AddHttpClient("InventoryService", client =>
     // attempt (so it can trip based on real attempt-level failures).
 
     // --- Retry (Day 8, Segment 1) ---
-    // Bounded attempts, exponential backoff, WITH jitter so multiple
-    // OrderService replicas retrying at once don't land in lockstep.
-    // ShouldHandle deliberately does NOT match a real 404 - that's a
-    // legitimate business answer from Inventory ("no such product"),
-    // not a transient failure worth retrying.
     pipelineBuilder.AddRetry(new RetryStrategyOptions<HttpResponseMessage>
     {
         MaxRetryAttempts = 3,
@@ -51,11 +54,6 @@ builder.Services.AddHttpClient("InventoryService", client =>
     });
 
     // --- Circuit Breaker (Day 8, Segment 3) ---
-    // Trips once at least 8 calls have been observed in a 10-second window
-    // AND 50% or more of them failed. While open, calls fail immediately
-    // (BrokenCircuitException) with NO network attempt at all - that's the
-    // efficiency gain over retry+timeout alone. After 15s it moves to
-    // Half-Open and lets a trial call through before fully resuming.
     pipelineBuilder.AddCircuitBreaker(new CircuitBreakerStrategyOptions<HttpResponseMessage>
     {
         FailureRatio = 0.5,
@@ -69,39 +67,34 @@ builder.Services.AddHttpClient("InventoryService", client =>
     });
 
     // --- Timeout (Day 8, Segment 2) ---
-    // Placeholder value: we don't have real p99 latency data for
-    // InventoryService yet (no monitoring wired up in this learning
-    // project). 2 seconds is a reasoned starting point given normal
-    // latency is ~50ms, NOT a final answer - in real production this
-    // gets set from actual measured p99, then revisited with real data.
     pipelineBuilder.AddTimeout(TimeSpan.FromSeconds(2));
 });
 
 // Day 9: the Order + Outbox durable store. SQLite for now - deliberately thin,
-// zero external infra for a learning project (see Day 9 theory: production would
-// target Azure SQL Database instead, via a provider swap only - the DbContext,
-// entities, and every LINQ query here stay identical either way).
+// zero external infra for a learning project (production would target Azure SQL
+// Database instead, via a provider swap only).
 builder.Services.AddDbContext<OrderDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("OrderDb")));
 
-// Publishes OrderConfirmed events. Singleton because ServiceBusClient/Sender are meant to be
-// long-lived and reused across requests, not created per-request.
+// Publishes events (OrderConfirmed originally, OrderCreated/OrderResult as of Day 10).
+// Singleton because ServiceBusClient/Sender are meant to be long-lived and reused
+// across requests, not created per-request.
 builder.Services.AddSingleton<IOrderEventPublisher, OrderEventPublisher>();
 
 // Day 9: the Outbox Dispatcher. Runs for the lifetime of the app, on its own timer,
-// completely independent of any HTTP request - this is what catches "Service Bus had
-// a transient blip while OrderService stayed healthy" (Gap 2), not just crash recovery.
+// completely independent of any HTTP request.
 builder.Services.AddHostedService<OutboxDispatcher>();
+
+// Day 10 (Saga): consumes StockReserved/ReservationFailed and drives the Order's
+// state machine forward - Pending -> Completed or Pending -> Failed.
+builder.Services.AddHostedService<InventoryResultConsumer>();
 
 var app = builder.Build();
 
 // Day 9: apply pending EF Core migrations on startup. Deliberate, narrow trade-off -
-// this is safe ONLY because exactly one OrderService instance ever runs in this
-// docker-compose setup. It is NOT what we'll do once OrderService scales to multiple
-// replicas in Kubernetes (Block G) - several pods all racing to migrate the same
-// schema simultaneously on startup is a real hazard. At that point this becomes a
-// separate, one-time migration step (a Job or init container), not something every
-// replica does on boot. Flagging that now so it doesn't get carried forward silently.
+// safe ONLY because exactly one OrderService instance ever runs in this docker-compose
+// setup; becomes a separate one-time migration step (Job/init container) once this
+// scales to multiple replicas in Kubernetes (Block G).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();

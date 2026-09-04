@@ -12,6 +12,10 @@ namespace OrderService.Data
 
         public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
+        // Day 10 (Saga): the Inbox table - see ProcessedInventoryEvent for why EventId
+        // being the primary key is the whole mechanism.
+        public DbSet<ProcessedInventoryEvent> ProcessedInventoryEvents => Set<ProcessedInventoryEvent>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
