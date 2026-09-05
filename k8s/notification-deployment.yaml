@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: mcr.microsoft.com/dotnet/samples:aspnetapp
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: notification-config
+          env:
+            - name: SERVICEBUS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: servicebus-secret
+                  key: CONNECTION_STRING
