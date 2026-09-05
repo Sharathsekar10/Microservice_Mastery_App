@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+        - name: order-service
+          image: mcr.microsoft.com/dotnet/samples:aspnetapp
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: order-config
+          env:
+            - name: SERVICEBUS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: servicebus-secret
+                  key: CONNECTION_STRING
