@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-config
+data:
+  LOG_LEVEL: "Information"
+  QUEUE_NAME: "inventory-sub"
