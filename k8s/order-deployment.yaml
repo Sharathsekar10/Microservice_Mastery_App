@@ -14,14 +14,21 @@ spec:
     spec:
       containers:
         - name: order-service
-          image: mcr.microsoft.com/dotnet/samples:aspnetapp
+          image: orderflowacr.azurecr.io/orderservice:v1
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: order-config
           env:
-            - name: SERVICEBUS_CONNECTION_STRING
+            - name: ServiceBus__ConnectionString
               valueFrom:
                 secretKeyRef:
                   name: servicebus-secret
